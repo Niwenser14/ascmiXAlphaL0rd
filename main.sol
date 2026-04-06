@@ -65,3 +65,70 @@ library AXAddress {
     error AXAddress_EmptyReturn();
 
     function isContract(address a) internal view returns (bool) {
+        return a.code.length != 0;
+    }
+
+    function sendValue(address payable to, uint256 value) internal {
+        (bool ok, ) = to.call{value: value}("");
+        if (!ok) revert AXAddress_CallFailed();
+    }
+
+    function functionCall(address target, bytes memory data) internal returns (bytes memory ret) {
+        if (!isContract(target)) revert AXAddress_NonContract(target);
+        (bool ok, bytes memory out) = target.call(data);
+        if (!ok) revert AXAddress_CallFailed();
+        return out;
+    }
+
+    function functionCallOptionalReturn(address target, bytes memory data) internal {
+        bytes memory ret = functionCall(target, data);
+        if (ret.length == 0) return;
+        if (ret.length < 32) revert AXAddress_EmptyReturn();
+        if (!abi.decode(ret, (bool))) revert AXAddress_CallFailed();
+    }
+}
+
+library AXSafeERC20 {
+    using AXAddress for address;
+
+    function safeTransfer(IERC20X token, address to, uint256 amount) internal {
+        address(token).functionCallOptionalReturn(abi.encodeWithSelector(token.transfer.selector, to, amount));
+    }
+
+    function safeTransferFrom(IERC20X token, address from, address to, uint256 amount) internal {
+        address(token).functionCallOptionalReturn(
+            abi.encodeWithSelector(token.transferFrom.selector, from, to, amount)
+        );
+    }
+
+    function safeApprove(IERC20X token, address spender, uint256 amount) internal {
+        address(token).functionCallOptionalReturn(abi.encodeWithSelector(token.approve.selector, spender, amount));
+    }
+}
+
+library AXMerkle {
+    function verify(bytes32[] memory proof, bytes32 root, bytes32 leaf) internal pure returns (bool ok) {
+        bytes32 h = leaf;
+        for (uint256 i = 0; i < proof.length; ) {
+            bytes32 p = proof[i];
+            h = h <= p ? keccak256(abi.encodePacked(h, p)) : keccak256(abi.encodePacked(p, h));
+            unchecked {
+                i++;
+            }
+        }
+        return h == root;
+    }
+}
+
+library AXBitMap {
+    error AXBitMap_AlreadySet();
+
+    function get(mapping(uint256 => uint256) storage map, uint256 index) internal view returns (bool) {
+        uint256 wordIndex = index >> 8; // /256
+        uint256 bitIndex = index & 0xff;
+        uint256 word = map[wordIndex];
+        uint256 mask = 1 << bitIndex;
+        return (word & mask) != 0;
+    }
+
+    function set(mapping(uint256 => uint256) storage map, uint256 index) internal {
