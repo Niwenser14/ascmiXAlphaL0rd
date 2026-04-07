@@ -199,3 +199,70 @@ library AXMath {
             xx >>= 16;
             z <<= 8;
         }
+        if (xx >= 0x100) {
+            xx >>= 8;
+            z <<= 4;
+        }
+        if (xx >= 0x10) {
+            xx >>= 4;
+            z <<= 2;
+        }
+        if (xx >= 0x8) {
+            z <<= 1;
+        }
+        unchecked {
+            z = (z + x / z) >> 1;
+            z = (z + x / z) >> 1;
+            z = (z + x / z) >> 1;
+            z = (z + x / z) >> 1;
+            z = (z + x / z) >> 1;
+            z = (z + x / z) >> 1;
+            z = (z + x / z) >> 1;
+            uint256 z1 = x / z;
+            return z < z1 ? z : z1;
+        }
+    }
+}
+
+library AXECDSA {
+    error AXECDSA_BadSig();
+    error AXECDSA_BadS();
+    error AXECDSA_BadV();
+
+    function recover(bytes32 digest, bytes memory sig) internal pure returns (address) {
+        if (sig.length != 65) revert AXECDSA_BadSig();
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        assembly {
+            r := mload(add(sig, 0x20))
+            s := mload(add(sig, 0x40))
+            v := byte(0, mload(add(sig, 0x60)))
+        }
+        return recover(digest, v, r, s);
+    }
+
+    function recover(bytes32 digest, uint8 v, bytes32 r, bytes32 s) internal pure returns (address signer) {
+        // secp256k1n/2
+        if (uint256(s) > 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0) {
+            revert AXECDSA_BadS();
+        }
+        if (v != 27 && v != 28) revert AXECDSA_BadV();
+        signer = ecrecover(digest, v, r, s);
+        if (signer == address(0)) revert AXECDSA_BadSig();
+    }
+
+    function toEthSignedMessageHash(bytes32 h) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", h));
+    }
+}
+
+library AXEIP712 {
+    // compact EIP-712 domain separator builder
+    function domainSeparator(
+        string memory name,
+        string memory version,
+        uint256 chainId,
+        address verifyingContract,
+        bytes32 salt
+    ) internal pure returns (bytes32) {
