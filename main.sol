@@ -266,3 +266,70 @@ library AXEIP712 {
         address verifyingContract,
         bytes32 salt
     ) internal pure returns (bytes32) {
+        bytes32 typeHash = keccak256(
+            "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)"
+        );
+        return keccak256(
+            abi.encode(typeHash, keccak256(bytes(name)), keccak256(bytes(version)), chainId, verifyingContract, salt)
+        );
+    }
+
+    function hashTyped(bytes32 domainSeparator_, bytes32 structHash) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked("\x19\x01", domainSeparator_, structHash));
+    }
+}
+
+/*//////////////////////////////////////////////////////////////
+                        CORE PRIMITIVES
+//////////////////////////////////////////////////////////////*/
+
+abstract contract AXReentrancy {
+    error AXReentrancy_Locked();
+    uint256 private _axLock;
+
+    modifier nonReentrant() {
+        if (_axLock == 1) revert AXReentrancy_Locked();
+        _axLock = 1;
+        _;
+        _axLock = 0;
+    }
+}
+
+abstract contract AXERC721Receiver is IERC721ReceiverX {
+    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
+        return this.onERC721Received.selector;
+    }
+}
+
+/*//////////////////////////////////////////////////////////////
+                        CONTRACT: ascmiXAlphaL0rd
+//////////////////////////////////////////////////////////////*/
+
+contract ascmiXAlphaL0rd is AXReentrancy, AXERC721Receiver {
+    using AXSafeERC20 for IERC20X;
+    using AXAddress for address payable;
+    using AXBitMap for mapping(uint256 => uint256);
+
+    /*//////////////////////////////////////////////////////////////
+                                ERRORS
+    //////////////////////////////////////////////////////////////*/
+
+    error AX_Unauthorized();
+    error AX_Paused();
+    error AX_Zero();
+    error AX_BadAddr();
+    error AX_BadValue();
+    error AX_Expired();
+    error AX_Dupe();
+    error AX_Limit();
+    error AX_TooSoon();
+    error AX_TooLate();
+    error AX_BadSig();
+    error AX_SendFailed();
+    error AX_Same();
+    error AX_BadToken();
+    error AX_RootZero();
+    error AX_BadJob();
+    error AX_JobClosed();
+    error AX_JobActive();
+    error AX_TrustCap();
