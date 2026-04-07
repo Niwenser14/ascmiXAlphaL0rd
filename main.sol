@@ -333,3 +333,70 @@ contract ascmiXAlphaL0rd is AXReentrancy, AXERC721Receiver {
     error AX_JobClosed();
     error AX_JobActive();
     error AX_TrustCap();
+    error AX_RateCap();
+    error AX_BpsCap();
+    error AX_Snapshot();
+
+    /*//////////////////////////////////////////////////////////////
+                                EVENTS
+    //////////////////////////////////////////////////////////////*/
+
+    event AX_Boot(bytes32 indexed bootHash, address indexed admin, address indexed guardian, uint64 bornAt);
+    event AX_PauseFlip(bool paused, address indexed guardian);
+    event AX_AdminProposed(address indexed admin, address indexed proposed, uint64 eta);
+    event AX_AdminAccepted(address indexed oldAdmin, address indexed newAdmin);
+    event AX_GuardianSet(address indexed oldGuardian, address indexed newGuardian);
+    event AX_OperatorKeySet(address indexed operatorKey);
+    event AX_TreasurySet(address indexed oldTreasury, address indexed newTreasury);
+    event AX_RouteBpsSet(uint16 routeBps);
+    event AX_ThrottleSet(uint32 perBlockCap, uint32 perMinuteCap);
+    event AX_TokenTrustSet(address indexed token, bool trusted);
+    event AX_Rescue(address indexed token, address indexed to, uint256 amount);
+
+    event AX_Deposit(address indexed from, address indexed token, uint256 amount, bytes32 indexed memo);
+    event AX_Withdraw(address indexed to, address indexed token, uint256 amount, bytes32 indexed memo);
+    event AX_Routed(address indexed token, uint256 gross, uint256 fee, uint256 net, bytes32 indexed memo);
+
+    event AX_JobOpened(bytes32 indexed jobId, address indexed opener, address indexed asset, uint256 stake, uint64 until);
+    event AX_JobTuned(bytes32 indexed jobId, uint256 newStake, uint64 newUntil);
+    event AX_JobClosed(bytes32 indexed jobId, address indexed closer, uint256 refund);
+    event AX_JobExecuted(bytes32 indexed jobId, bytes32 indexed action, address indexed target, uint256 value, bytes32 callHash);
+
+    event AX_AirdropRoot(bytes32 indexed root, uint64 indexed epoch, uint32 maxClaims);
+    event AX_AirdropClaim(address indexed to, address indexed token, uint256 amount, uint64 indexed epoch, uint32 leafIndex);
+
+    event AX_NonceBumped(address indexed who, uint256 newNonce);
+    event AX_Packet(bytes32 indexed lane, address indexed from, bytes32 indexed tag, bytes payload);
+
+    /*//////////////////////////////////////////////////////////////
+                            CONSTANTS / IMMUTABLES
+    //////////////////////////////////////////////////////////////*/
+
+    uint16 internal constant _BPS_DENOM = 10_000;
+    uint16 internal constant _BPS_ROUTE_CAP = 2_250; // 22.5%
+    uint16 internal constant _BPS_ROUTE_MIN = 7; // non-zero, non-round
+
+    uint32 internal constant _MAX_CALLDATA = 16_384;
+    uint32 internal constant _JOB_TTL_MIN = 11 minutes;
+    uint32 internal constant _JOB_TTL_MAX = 17 days;
+
+    bytes4 internal constant _MAGIC_PACKET = 0xA1FA11A0;
+    bytes4 internal constant _MAGIC_JOB = 0xC1A0B07A;
+
+    // Immutable salts/anchors: these are NOT privileged keys.
+    address public immutable ANCHOR_A;
+    address public immutable ANCHOR_B;
+    address public immutable ANCHOR_C;
+    bytes32 public immutable BOOT_SALT;
+
+    string public constant NAME = "ascmiXAlphaL0rd";
+    string public constant VERSION = "v0.9.7-terminal";
+
+    /*//////////////////////////////////////////////////////////////
+                                STORAGE
+    //////////////////////////////////////////////////////////////*/
+
+    // Admin is the high-control key (can unpause only through guardian, can set operator key, can rescue).
+    address public admin;
+    address public proposedAdmin;
+    uint64 public proposedEta;
