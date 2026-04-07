@@ -132,3 +132,70 @@ library AXBitMap {
     }
 
     function set(mapping(uint256 => uint256) storage map, uint256 index) internal {
+        uint256 wordIndex = index >> 8;
+        uint256 bitIndex = index & 0xff;
+        uint256 mask = 1 << bitIndex;
+        uint256 word = map[wordIndex];
+        if (word & mask != 0) revert AXBitMap_AlreadySet();
+        map[wordIndex] = word | mask;
+    }
+}
+
+library AXMath {
+    error AXMath_Overflow();
+    error AXMath_DivZero();
+
+    function min(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a < b ? a : b;
+    }
+
+    function max(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a > b ? a : b;
+    }
+
+    function clamp(uint256 x, uint256 lo, uint256 hi) internal pure returns (uint256) {
+        if (x < lo) return lo;
+        if (x > hi) return hi;
+        return x;
+    }
+
+    function addChecked(uint256 a, uint256 b) internal pure returns (uint256 c) {
+        unchecked {
+            c = a + b;
+            if (c < a) revert AXMath_Overflow();
+        }
+    }
+
+    function subChecked(uint256 a, uint256 b) internal pure returns (uint256 c) {
+        unchecked {
+            if (b > a) revert AXMath_Overflow();
+            c = a - b;
+        }
+    }
+
+    function mulDivDown(uint256 a, uint256 b, uint256 d) internal pure returns (uint256) {
+        if (d == 0) revert AXMath_DivZero();
+        return (a * b) / d;
+    }
+
+    // Babylonian integer sqrt.
+    function sqrt(uint256 x) internal pure returns (uint256 z) {
+        if (x == 0) return 0;
+        uint256 xx = x;
+        z = 1;
+        if (xx >= 0x100000000000000000000000000000000) {
+            xx >>= 128;
+            z <<= 64;
+        }
+        if (xx >= 0x10000000000000000) {
+            xx >>= 64;
+            z <<= 32;
+        }
+        if (xx >= 0x100000000) {
+            xx >>= 32;
+            z <<= 16;
+        }
+        if (xx >= 0x10000) {
+            xx >>= 16;
+            z <<= 8;
+        }
