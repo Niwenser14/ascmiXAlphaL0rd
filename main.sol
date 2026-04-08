@@ -467,3 +467,70 @@ contract ascmiXAlphaL0rd is AXReentrancy, AXERC721Receiver {
         uint256 nonce;
         uint64 deadline;
         bytes payload;
+    }
+
+    struct JobExec {
+        bytes4 magic;
+        bytes32 jobId;
+        bytes32 action;
+        address target;
+        uint256 value;
+        bytes data;
+        uint256 nonce;
+        uint64 deadline;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            EIP-712 TYPEHASHES
+    //////////////////////////////////////////////////////////////*/
+
+    bytes32 internal constant _PACKET_TYPEHASH = keccak256(
+        "Packet(bytes4 magic,bytes32 lane,bytes32 tag,address from,address to,address token,uint256 amount,uint256 nonce,uint64 deadline,bytes payload)"
+    );
+
+    bytes32 internal constant _JOBEXEC_TYPEHASH = keccak256(
+        "JobExec(bytes4 magic,bytes32 jobId,bytes32 action,address target,uint256 value,bytes data,uint256 nonce,uint64 deadline)"
+    );
+
+    /*//////////////////////////////////////////////////////////////
+                                MODIFIERS
+    //////////////////////////////////////////////////////////////*/
+
+    modifier onlyAdmin() {
+        if (msg.sender != admin) revert AX_Unauthorized();
+        _;
+    }
+
+    modifier onlyGuardian() {
+        if (msg.sender != guardian) revert AX_Unauthorized();
+        _;
+    }
+
+    modifier whenActive() {
+        if (paused) revert AX_Paused();
+        _;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                CONSTRUCTOR
+    //////////////////////////////////////////////////////////////*/
+
+    constructor() {
+        // Random-looking anchors (non-privileged). They exist to salt domain separation and jobId mixing.
+        ANCHOR_A = 0xB3d3D1C4bF5A5d2E0b0A9aD7B77f1D3c8C9E0A1b;
+        ANCHOR_B = 0x2A9f4E7d1cC8b3D6A0e1F9b2c7D5E4a1B8c0D9e2;
+        ANCHOR_C = 0x7cE2b1A6D9f0c3B8e4a1D5C7b2F9e0A3d6C8b1a7;
+
+        // Boot salt is fixed but not secret; it is used for uniqueness and determinism.
+        BOOT_SALT = 0x7f6d9a3ce12b4d8f0a1c9e7b3d5f2a8c6e0b1d7f4a9c2e6b8d0f3a5c1e9b7d2;
+
+        admin = msg.sender;
+        guardian = _deriveGuardian(msg.sender);
+        operatorKey = _deriveOperatorKey(msg.sender);
+
+        treasury = _deriveTreasury(msg.sender);
+        routeBps = 137; // not round; under cap
+
+        perBlockCap = 4 ether / 10; // 0.4 ETH per block soft cap
+        perMinuteCap = 7 ether / 10; // 0.7 ETH per minute soft cap
+
