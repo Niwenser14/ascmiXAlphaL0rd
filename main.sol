@@ -534,3 +534,70 @@ contract ascmiXAlphaL0rd is AXReentrancy, AXERC721Receiver {
         perBlockCap = 4 ether / 10; // 0.4 ETH per block soft cap
         perMinuteCap = 7 ether / 10; // 0.7 ETH per minute soft cap
 
+        paused = false;
+
+        // Trusted tokens: none by default. Users can still deposit unknown tokens, but operator flows require trust.
+        trustedToken[address(0)] = true; // native allowed
+
+        _cachedChainId = block.chainid;
+        _domainSeparator = _computeDomainSeparator();
+
+        emit AX_Boot(_bootHash(), admin, guardian, uint64(block.timestamp));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            RECEIVE / FALLBACK
+    //////////////////////////////////////////////////////////////*/
+
+    receive() external payable {
+        emit AX_Deposit(msg.sender, address(0), msg.value, bytes32(0));
+    }
+
+    fallback() external payable {
+        if (msg.data.length == 0) {
+            emit AX_Deposit(msg.sender, address(0), msg.value, bytes32(0));
+            return;
+        }
+        // Treat random calls as packets on an implicit lane.
+        emit AX_Packet(keccak256(abi.encodePacked("FALLBACK", address(this))), msg.sender, bytes32(_MAGIC_PACKET), msg.data);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            VIEW HELPERS
+    //////////////////////////////////////////////////////////////*/
+
+    function domainSeparator() external view returns (bytes32) {
+        return _domainSeparatorLive();
+    }
+
+    function throttleState() external view returns (uint32 blkSpent, uint32 minCursor, uint32 minSpent, uint64 touched) {
+        return (_blockSpent, _minuteCursor, _minuteSpent, lastThrottleTouch);
+    }
+
+    function airdropClaimed(uint256 leafIndex) external view returns (bool) {
+        return _airdropClaims.get(leafIndex);
+    }
+
+    function jobState(bytes32 jobId)
+        external
+        view
+        returns (address opener, address asset, uint256 stake, uint64 openedAt, uint64 until, bool closed, bytes4 kind)
+    {
+        Job memory j = jobs[jobId];
+        return (j.opener, j.asset, j.stake, j.openedAt, j.until, j.closed, j.kind);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            ADMIN / GUARDIAN
+    //////////////////////////////////////////////////////////////*/
+
+    function setPaused(bool on) external onlyGuardian {
+        if (paused == on) revert AX_Same();
+        paused = on;
+        emit AX_PauseFlip(on, msg.sender);
+    }
+
+    function setGuardian(address nextGuardian) external onlyGuardian {
+        if (nextGuardian == address(0)) revert AX_BadAddr();
+        address old = guardian;
+        guardian = nextGuardian;
