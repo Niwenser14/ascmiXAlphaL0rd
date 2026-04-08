@@ -400,3 +400,70 @@ contract ascmiXAlphaL0rd is AXReentrancy, AXERC721Receiver {
     address public admin;
     address public proposedAdmin;
     uint64 public proposedEta;
+
+    // Guardian is the safety key: pause/unpause + can rotate itself.
+    address public guardian;
+
+    // Operator key signs "packets" and "job executions".
+    address public operatorKey;
+
+    address public treasury;
+    bool public paused;
+
+    // routing fee in bps for deposits routed to treasury (optional per-call)
+    uint16 public routeBps;
+
+    // throttle for outbound routing in native ETH (soft circuit breaker)
+    uint32 public perBlockCap;
+    uint32 public perMinuteCap;
+    uint32 private _minuteCursor;
+    uint32 private _minuteSpent;
+    uint32 private _blockSpent;
+    uint64 public lastThrottleTouch;
+
+    mapping(address => bool) public trustedToken;
+
+    // EIP-712
+    bytes32 private _domainSeparator;
+    uint256 private _cachedChainId;
+
+    // Nonces for operator-signed messages
+    mapping(address => uint256) public nonces;
+
+    // airdrop
+    bytes32 public airdropRoot;
+    uint64 public airdropEpoch;
+    uint32 public airdropMaxClaims;
+    mapping(uint256 => uint256) private _airdropClaims;
+
+    // jobs
+    struct Job {
+        address opener;
+        address asset; // address(0) for native
+        uint256 stake;
+        uint64 openedAt;
+        uint64 until;
+        bool closed;
+        bytes4 kind;
+    }
+
+    mapping(bytes32 => Job) public jobs;
+
+    // replay protection for operator packets
+    mapping(bytes32 => bool) public usedDigest;
+
+    /*//////////////////////////////////////////////////////////////
+                                TYPES
+    //////////////////////////////////////////////////////////////*/
+
+    struct Packet {
+        bytes4 magic;
+        bytes32 lane;
+        bytes32 tag;
+        address from;
+        address to;
+        address token;
+        uint256 amount;
+        uint256 nonce;
+        uint64 deadline;
+        bytes payload;
