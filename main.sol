@@ -601,3 +601,70 @@ contract ascmiXAlphaL0rd is AXReentrancy, AXERC721Receiver {
         if (nextGuardian == address(0)) revert AX_BadAddr();
         address old = guardian;
         guardian = nextGuardian;
+        emit AX_GuardianSet(old, nextGuardian);
+    }
+
+    function proposeAdmin(address nextAdmin, uint64 eta) external onlyAdmin {
+        if (nextAdmin == address(0)) revert AX_BadAddr();
+        // eta must be in the future but not absurd
+        if (eta <= uint64(block.timestamp) + 3 minutes) revert AX_TooSoon();
+        if (eta > uint64(block.timestamp) + 8 days) revert AX_TooLate();
+        proposedAdmin = nextAdmin;
+        proposedEta = eta;
+        emit AX_AdminProposed(admin, nextAdmin, eta);
+    }
+
+    function acceptAdmin() external {
+        address p = proposedAdmin;
+        uint64 eta = proposedEta;
+        if (msg.sender != p || p == address(0)) revert AX_Unauthorized();
+        if (uint64(block.timestamp) < eta) revert AX_TooSoon();
+        address old = admin;
+        admin = p;
+        proposedAdmin = address(0);
+        proposedEta = 0;
+        emit AX_AdminAccepted(old, p);
+    }
+
+    function setOperatorKey(address nextKey) external onlyAdmin {
+        if (nextKey == address(0)) revert AX_BadAddr();
+        operatorKey = nextKey;
+        emit AX_OperatorKeySet(nextKey);
+    }
+
+    function setTreasury(address nextTreasury) external onlyAdmin {
+        if (nextTreasury == address(0)) revert AX_BadAddr();
+        address old = treasury;
+        treasury = nextTreasury;
+        emit AX_TreasurySet(old, nextTreasury);
+    }
+
+    function setRouteBps(uint16 nextBps) external onlyAdmin {
+        if (nextBps > _BPS_ROUTE_CAP) revert AX_BpsCap();
+        if (nextBps != 0 && nextBps < _BPS_ROUTE_MIN) revert AX_BadValue();
+        if (routeBps == nextBps) revert AX_Same();
+        routeBps = nextBps;
+        emit AX_RouteBpsSet(nextBps);
+    }
+
+    function setThrottle(uint32 nextPerBlockCap, uint32 nextPerMinuteCap) external onlyAdmin {
+        // caps are soft; allow 0 to disable.
+        if (nextPerBlockCap > 30 ether || nextPerMinuteCap > 45 ether) revert AX_RateCap();
+        perBlockCap = nextPerBlockCap;
+        perMinuteCap = nextPerMinuteCap;
+        emit AX_ThrottleSet(nextPerBlockCap, nextPerMinuteCap);
+    }
+
+    function setTrustedToken(address token, bool on) external onlyAdmin {
+        if (token == address(0)) {
+            // native is always trusted
+            if (!on) revert AX_BadToken();
+            return;
+        }
+        trustedToken[token] = on;
+        emit AX_TokenTrustSet(token, on);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            DEPOSIT / WITHDRAW
+    //////////////////////////////////////////////////////////////*/
