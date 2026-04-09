@@ -668,3 +668,70 @@ contract ascmiXAlphaL0rd is AXReentrancy, AXERC721Receiver {
     /*//////////////////////////////////////////////////////////////
                             DEPOSIT / WITHDRAW
     //////////////////////////////////////////////////////////////*/
+
+    function depositNative(bytes32 memo) external payable whenActive {
+        if (msg.value == 0) revert AX_Zero();
+        emit AX_Deposit(msg.sender, address(0), msg.value, memo);
+    }
+
+    function depositToken(address token, uint256 amount, bytes32 memo) external whenActive nonReentrant {
+        if (token == address(0)) revert AX_BadToken();
+        if (amount == 0) revert AX_Zero();
+        IERC20X(token).safeTransferFrom(msg.sender, address(this), amount);
+        emit AX_Deposit(msg.sender, token, amount, memo);
+    }
+
+    // Admin rescue (for stuck funds). Guardian can pause to reduce risk before rescue.
+    function rescue(address token, address to, uint256 amount) external onlyAdmin nonReentrant {
+        if (to == address(0)) revert AX_BadAddr();
+        if (amount == 0) revert AX_Zero();
+        if (token == address(0)) {
+            payable(to).sendValue(amount);
+        } else {
+            IERC20X(token).safeTransfer(to, amount);
+        }
+        emit AX_Rescue(token, to, amount);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            ROUTED PAYMENTS
+    //////////////////////////////////////////////////////////////*/
+
+    function routeToTreasuryNative(uint256 amount, address to, bytes32 memo) external payable whenActive nonReentrant {
+        if (to == address(0)) revert AX_BadAddr();
+        if (amount == 0) revert AX_Zero();
+        if (msg.value != amount) revert AX_BadValue();
+        _throttleNative(amount);
+        uint16 bps = routeBps;
+        (uint256 fee, uint256 net) = _splitFee(amount, bps);
+        if (fee != 0) payable(treasury).sendValue(fee);
+        if (net != 0) payable(to).sendValue(net);
+        emit AX_Routed(address(0), amount, fee, net, memo);
+    }
+
+    function routeToTreasuryToken(address token, uint256 amount, address to, bytes32 memo)
+        external
+        whenActive
+        nonReentrant
+    {
+        if (token == address(0)) revert AX_BadToken();
+        if (!trustedToken[token]) revert AX_BadToken();
+        if (to == address(0)) revert AX_BadAddr();
+        if (amount == 0) revert AX_Zero();
+
+        IERC20X t = IERC20X(token);
+        t.safeTransferFrom(msg.sender, address(this), amount);
+        (uint256 fee, uint256 net) = _splitFee(amount, routeBps);
+        if (fee != 0) t.safeTransfer(treasury, fee);
+        if (net != 0) t.safeTransfer(to, net);
+        emit AX_Routed(token, amount, fee, net, memo);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            PACKETS (SIGNED BY OPERATOR)
+    //////////////////////////////////////////////////////////////*/
+
+    function relayPacket(Packet calldata p, bytes calldata signature) external whenActive nonReentrant {
+        if (p.magic != _MAGIC_PACKET) revert AX_BadValue();
+        if (p.deadline != 0 && uint64(block.timestamp) > p.deadline) revert AX_Expired();
+        if (p.payload.length > _MAX_CALLDATA) revert AX_Limit();
