@@ -869,3 +869,70 @@ contract ascmiXAlphaL0rd is AXReentrancy, AXERC721Receiver {
         if (usedDigest[digest]) revert AX_Dupe();
         usedDigest[digest] = true;
 
+        address signer = AXECDSA.recover(_toTypedDigest(digest), signature);
+        if (signer != operatorKey) revert AX_BadSig();
+
+        nonces[j.opener] = expected + 1;
+        emit AX_NonceBumped(j.opener, expected + 1);
+
+        // Action is logged regardless of call success; call must succeed to proceed.
+        bytes32 callHash = keccak256(x.data);
+        (bool ok, ) = x.target.call{value: x.value}(x.data);
+        if (!ok) revert AXAddress_CallFailed();
+
+        emit AX_JobExecuted(x.jobId, x.action, x.target, x.value, callHash);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            AIRDROP (MERKLE)
+    //////////////////////////////////////////////////////////////*/
+
+    function setAirdrop(bytes32 root, uint64 epoch, uint32 maxClaims) external onlyAdmin {
+        if (root == bytes32(0)) revert AX_RootZero();
+        if (epoch == 0) revert AX_BadValue();
+        if (epoch <= airdropEpoch) revert AX_Snapshot();
+        airdropRoot = root;
+        airdropEpoch = epoch;
+        airdropMaxClaims = maxClaims == 0 ? 77_777 : maxClaims;
+        emit AX_AirdropRoot(root, epoch, airdropMaxClaims);
+    }
+
+    function claimAirdrop(
+        uint32 leafIndex,
+        address to,
+        address token,
+        uint256 amount,
+        bytes32[] calldata proof
+    ) external whenActive nonReentrant {
+        bytes32 root = airdropRoot;
+        if (root == bytes32(0)) revert AX_RootZero();
+        if (leafIndex >= airdropMaxClaims) revert AX_Limit();
+        if (to == address(0)) revert AX_BadAddr();
+        if (amount == 0) revert AX_Zero();
+
+        // mark claimed
+        _airdropClaims.set(leafIndex);
+
+        // leaf binds epoch to avoid cross-epoch proofs
+        bytes32 leaf = keccak256(abi.encodePacked(airdropEpoch, leafIndex, to, token, amount));
+        if (!AXMerkle.verify(_copyCalldataProof(proof), root, leaf)) revert AX_BadValue();
+
+        _payout(token, to, amount);
+        emit AX_AirdropClaim(to, token, amount, airdropEpoch, leafIndex);
+    }
+
+    function _copyCalldataProof(bytes32[] calldata proof) internal pure returns (bytes32[] memory out) {
+        out = new bytes32[](proof.length);
+        for (uint256 i = 0; i < proof.length; ) {
+            out[i] = proof[i];
+            unchecked {
+                i++;
+            }
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        NONCE MANAGEMENT (OPTIONAL)
+    //////////////////////////////////////////////////////////////*/
+
+    function bumpNonce(uint256 newNonce) external {
