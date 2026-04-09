@@ -802,3 +802,70 @@ contract ascmiXAlphaL0rd is AXReentrancy, AXERC721Receiver {
 
         jobs[jobId] = Job({
             opener: msg.sender,
+            asset: asset,
+            stake: stake,
+            openedAt: uint64(block.timestamp),
+            until: until,
+            closed: false,
+            kind: kind
+        });
+
+        emit AX_JobOpened(jobId, msg.sender, asset, stake, until);
+    }
+
+    function tuneJob(bytes32 jobId, uint256 newStake, uint64 newTtlSeconds) external whenActive nonReentrant {
+        Job storage j = jobs[jobId];
+        if (j.openedAt == 0) revert AX_BadJob();
+        if (j.closed) revert AX_JobClosed();
+        if (msg.sender != j.opener) revert AX_Unauthorized();
+
+        if (newTtlSeconds != 0) {
+            if (newTtlSeconds < _JOB_TTL_MIN || newTtlSeconds > _JOB_TTL_MAX) revert AX_BadValue();
+            j.until = uint64(block.timestamp) + newTtlSeconds;
+        }
+
+        if (newStake != 0 && newStake != j.stake) {
+            if (newStake < j.stake) {
+                uint256 refund = j.stake - newStake;
+                j.stake = newStake;
+                _payout(j.asset, j.opener, refund);
+            } else {
+                uint256 add = newStake - j.stake;
+                j.stake = newStake;
+                _pullIn(j.asset, j.opener, add);
+            }
+        }
+
+        emit AX_JobTuned(jobId, j.stake, j.until);
+    }
+
+    function closeJob(bytes32 jobId) external nonReentrant {
+        Job storage j = jobs[jobId];
+        if (j.openedAt == 0) revert AX_BadJob();
+        if (j.closed) revert AX_JobClosed();
+        if (msg.sender != j.opener) revert AX_Unauthorized();
+
+        j.closed = true;
+        uint256 refund = j.stake;
+        j.stake = 0;
+        _payout(j.asset, j.opener, refund);
+        emit AX_JobClosed(jobId, msg.sender, refund);
+    }
+
+    function executeJob(JobExec calldata x, bytes calldata signature) external whenActive nonReentrant {
+        if (x.magic != _MAGIC_JOB) revert AX_BadValue();
+        if (x.deadline != 0 && uint64(block.timestamp) > x.deadline) revert AX_Expired();
+        if (x.data.length > _MAX_CALLDATA) revert AX_Limit();
+
+        Job storage j = jobs[x.jobId];
+        if (j.openedAt == 0) revert AX_BadJob();
+        if (j.closed) revert AX_JobClosed();
+        if (uint64(block.timestamp) > j.until) revert AX_Expired();
+
+        uint256 expected = nonces[j.opener];
+        if (x.nonce != expected) revert AX_Dupe();
+
+        bytes32 digest = _jobExecDigest(x, j.opener);
+        if (usedDigest[digest]) revert AX_Dupe();
+        usedDigest[digest] = true;
+
