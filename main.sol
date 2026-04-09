@@ -735,3 +735,70 @@ contract ascmiXAlphaL0rd is AXReentrancy, AXERC721Receiver {
         if (p.magic != _MAGIC_PACKET) revert AX_BadValue();
         if (p.deadline != 0 && uint64(block.timestamp) > p.deadline) revert AX_Expired();
         if (p.payload.length > _MAX_CALLDATA) revert AX_Limit();
+        if (p.from == address(0) || p.to == address(0)) revert AX_BadAddr();
+
+        // per-sender nonce; msg.sender can submit but the packet is attributed to p.from
+        uint256 expected = nonces[p.from];
+        if (p.nonce != expected) revert AX_Dupe();
+
+        bytes32 digest = _packetDigest(p);
+        if (usedDigest[digest]) revert AX_Dupe();
+        usedDigest[digest] = true;
+
+        address signer = AXECDSA.recover(_toTypedDigest(digest), signature);
+        if (signer != operatorKey) revert AX_BadSig();
+
+        nonces[p.from] = expected + 1;
+        emit AX_NonceBumped(p.from, expected + 1);
+
+        _applyPacket(p);
+        emit AX_Packet(p.lane, p.from, p.tag, p.payload);
+    }
+
+    function _applyPacket(Packet calldata p) internal {
+        if (p.token == address(0)) {
+            if (p.amount != 0) {
+                _throttleNative(p.amount);
+                payable(p.to).sendValue(p.amount);
+                emit AX_Withdraw(p.to, address(0), p.amount, p.tag);
+            }
+        } else {
+            if (!trustedToken[p.token]) revert AX_BadToken();
+            if (p.amount != 0) {
+                IERC20X(p.token).safeTransfer(p.to, p.amount);
+                emit AX_Withdraw(p.to, p.token, p.amount, p.tag);
+            }
+        }
+
+        if (p.payload.length != 0) {
+            // low-level call with value=0 always; value movements are explicit above.
+            (bool ok, ) = p.to.call(p.payload);
+            if (!ok) revert AXAddress_CallFailed();
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            JOBS (STAKE + EXECUTE)
+    //////////////////////////////////////////////////////////////*/
+
+    function openJob(address asset, uint256 stake, uint64 ttlSeconds, bytes32 salt) external payable whenActive nonReentrant returns (bytes32 jobId) {
+        if (ttlSeconds < _JOB_TTL_MIN || ttlSeconds > _JOB_TTL_MAX) revert AX_BadValue();
+        if (stake == 0) revert AX_Zero();
+
+        uint64 until = uint64(block.timestamp) + ttlSeconds;
+        bytes4 kind = _MAGIC_JOB;
+        jobId = _jobId(msg.sender, asset, stake, until, kind, salt);
+
+        Job storage j = jobs[jobId];
+        if (j.openedAt != 0) revert AX_Dupe();
+
+        if (asset == address(0)) {
+            if (msg.value != stake) revert AX_BadValue();
+        } else {
+            if (msg.value != 0) revert AX_BadValue();
+            if (!trustedToken[asset]) revert AX_BadToken();
+            IERC20X(asset).safeTransferFrom(msg.sender, address(this), stake);
+        }
+
+        jobs[jobId] = Job({
+            opener: msg.sender,
