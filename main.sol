@@ -1003,3 +1003,70 @@ contract ascmiXAlphaL0rd is AXReentrancy, AXERC721Receiver {
         emit AX_Withdraw(to, asset, amount, bytes32(0));
     }
 
+    function _pullIn(address asset, address from, uint256 amount) internal {
+        if (amount == 0) return;
+        if (asset == address(0)) revert AX_BadToken();
+        IERC20X(asset).safeTransferFrom(from, address(this), amount);
+        emit AX_Deposit(from, asset, amount, bytes32(0));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        INTERNAL: DIGESTS / IDS
+    //////////////////////////////////////////////////////////////*/
+
+    function _packetDigest(Packet calldata p) internal pure returns (bytes32) {
+        bytes32 payloadHash = keccak256(p.payload);
+        return keccak256(
+            abi.encode(
+                _PACKET_TYPEHASH,
+                p.magic,
+                p.lane,
+                p.tag,
+                p.from,
+                p.to,
+                p.token,
+                p.amount,
+                p.nonce,
+                p.deadline,
+                payloadHash
+            )
+        );
+    }
+
+    function _jobExecDigest(JobExec calldata x, address opener) internal pure returns (bytes32) {
+        bytes32 dataHash = keccak256(x.data);
+        // opener included to bind nonce namespace and avoid cross-job replay between different openers.
+        return keccak256(
+            abi.encode(
+                _JOBEXEC_TYPEHASH,
+                x.magic,
+                x.jobId,
+                x.action,
+                x.target,
+                x.value,
+                dataHash,
+                x.nonce,
+                x.deadline,
+                opener
+            )
+        );
+    }
+
+    function _toTypedDigest(bytes32 structHash) internal view returns (bytes32) {
+        return AXEIP712.hashTyped(_domainSeparatorLive(), structHash);
+    }
+
+    function _domainSeparatorLive() internal view returns (bytes32) {
+        if (block.chainid == _cachedChainId) return _domainSeparator;
+        return _computeDomainSeparator();
+    }
+
+    function _computeDomainSeparator() internal view returns (bytes32) {
+        return AXEIP712.domainSeparator(NAME, VERSION, block.chainid, address(this), _salt());
+    }
+
+    function _salt() internal view returns (bytes32) {
+        // Blend anchors + deployment salt. This is not a secret; it is a uniqueness knob.
+        return keccak256(abi.encodePacked(BOOT_SALT, ANCHOR_A, ANCHOR_B, ANCHOR_C, address(this)));
+    }
+
