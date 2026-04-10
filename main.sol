@@ -936,3 +936,70 @@ contract ascmiXAlphaL0rd is AXReentrancy, AXERC721Receiver {
     //////////////////////////////////////////////////////////////*/
 
     function bumpNonce(uint256 newNonce) external {
+        uint256 cur = nonces[msg.sender];
+        if (newNonce <= cur) revert AX_BadValue();
+        // prevent absurd jumps as a footgun; still allows fast cancellation
+        if (newNonce - cur > 10_000) revert AX_Limit();
+        nonces[msg.sender] = newNonce;
+        emit AX_NonceBumped(msg.sender, newNonce);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            INTERNAL: THROTTLE
+    //////////////////////////////////////////////////////////////*/
+
+    function _throttleNative(uint256 amount) internal {
+        if (amount == 0) return;
+        uint32 pb = perBlockCap;
+        uint32 pm = perMinuteCap;
+        if (pb == 0 && pm == 0) return;
+
+        // per block cap
+        if (_blockSpent == 0 || lastThrottleTouch != uint64(block.number)) {
+            _blockSpent = 0;
+        }
+        uint32 nextBlock = _safeU32(_blockSpent + uint32(AXMath.min(amount, type(uint32).max)));
+        if (pb != 0 && nextBlock > pb) revert AX_TrustCap();
+        _blockSpent = nextBlock;
+
+        // per minute cap (bucketed)
+        uint32 nowMin = uint32(block.timestamp / 60);
+        if (_minuteCursor != nowMin) {
+            _minuteCursor = nowMin;
+            _minuteSpent = 0;
+        }
+        uint32 nextMin = _safeU32(_minuteSpent + uint32(AXMath.min(amount, type(uint32).max)));
+        if (pm != 0 && nextMin > pm) revert AX_TrustCap();
+        _minuteSpent = nextMin;
+        lastThrottleTouch = uint64(block.number);
+    }
+
+    function _safeU32(uint256 x) internal pure returns (uint32) {
+        if (x > type(uint32).max) revert AXMath_Overflow();
+        return uint32(x);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            INTERNAL: FEES
+    //////////////////////////////////////////////////////////////*/
+
+    function _splitFee(uint256 amount, uint16 bps) internal pure returns (uint256 fee, uint256 net) {
+        if (bps == 0) return (0, amount);
+        fee = (amount * bps) / _BPS_DENOM;
+        net = amount - fee;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            INTERNAL: PAY / PULL
+    //////////////////////////////////////////////////////////////*/
+
+    function _payout(address asset, address to, uint256 amount) internal {
+        if (amount == 0) return;
+        if (asset == address(0)) {
+            payable(to).sendValue(amount);
+        } else {
+            IERC20X(asset).safeTransfer(to, amount);
+        }
+        emit AX_Withdraw(to, asset, amount, bytes32(0));
+    }
+
