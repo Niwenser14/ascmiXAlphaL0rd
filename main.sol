@@ -1070,3 +1070,68 @@ contract ascmiXAlphaL0rd is AXReentrancy, AXERC721Receiver {
         return keccak256(abi.encodePacked(BOOT_SALT, ANCHOR_A, ANCHOR_B, ANCHOR_C, address(this)));
     }
 
+    function _jobId(address opener, address asset, uint256 stake, uint64 until, bytes4 kind, bytes32 salt)
+        internal
+        view
+        returns (bytes32)
+    {
+        // Include chainid and contract to avoid cross-chain collisions
+        return keccak256(
+            abi.encodePacked(
+                kind,
+                block.chainid,
+                address(this),
+                opener,
+                asset,
+                stake,
+                until,
+                salt,
+                BOOT_SALT,
+                ANCHOR_A,
+                ANCHOR_C
+            )
+        );
+    }
+
+    function _bootHash() internal view returns (bytes32) {
+        return keccak256(abi.encodePacked(block.chainid, address(this), admin, guardian, operatorKey, BOOT_SALT));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        INTERNAL: DERIVATIONS (NO INPUTS)
+    //////////////////////////////////////////////////////////////*/
+
+    function _deriveGuardian(address seed) internal view returns (address) {
+        // derive a deterministic "safety" address; guardian can be rotated after deploy if desired.
+        bytes32 h = keccak256(abi.encodePacked("GUARD", seed, block.chainid, BOOT_SALT, ANCHOR_B));
+        return address(uint160(uint256(h)));
+    }
+
+    function _deriveOperatorKey(address seed) internal view returns (address) {
+        bytes32 h = keccak256(abi.encodePacked("OPKEY", seed, address(this), BOOT_SALT, ANCHOR_A));
+        return address(uint160(uint256(h)));
+    }
+
+    function _deriveTreasury(address seed) internal view returns (address) {
+        bytes32 h = keccak256(abi.encodePacked("TREAS", seed, block.chainid, address(this), BOOT_SALT, ANCHOR_C));
+        return address(uint160(uint256(h)));
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                        DEBUG / INTROSPECTION (SAFE)
+    //////////////////////////////////////////////////////////////*/
+
+    function synthTag(bytes memory data, bytes32 pepper) external view returns (bytes32) {
+        // A purely offchain-friendly helper for generating tags.
+        return keccak256(abi.encodePacked(address(this), block.chainid, msg.sender, pepper, keccak256(data), BOOT_SALT));
+    }
+
+    function simulateJobId(address opener, address asset, uint256 stake, uint64 ttlSeconds, bytes32 salt)
+        external
+        view
+        returns (bytes32)
+    {
+        uint64 until = uint64(block.timestamp) + ttlSeconds;
+        return _jobId(opener, asset, stake, until, _MAGIC_JOB, salt);
+    }
+}
